@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>você acorda em uma floresta.</title>
+<style>
+  :root{
+    --bg: #0a0f0c;
+    --bg-2: #0e1512;
+    --ink: #cdd9d0;
+    --ink-dim: #6f8079;
+    --danger: #7a2130;
+    --danger-glow: #b3435530;
+    --line: #223028;
+  }
+  * { box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(ellipse at 50% 20%, var(--bg-2), var(--bg) 70%);
+    color: var(--ink);
+    font-family: "Courier New", ui-monospace, "IBM Plex Mono", monospace;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+    pointer-events:none;
+    mix-blend-mode: overlay;
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none;
+    box-shadow: inset 0 0 160px 40px rgba(0,0,0,0.85);
+    transition: box-shadow 0.6s ease;
+    z-index: 5;
+  }
+  #vignette.danger{
+    box-shadow: inset 0 0 220px 60px rgba(122,33,48,0.35), inset 0 0 160px 40px rgba(0,0,0,0.85);
+  }
+  .wrap{
+    position:relative; z-index:2;
+    max-width: 640px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 8vh 24px 10vh;
+  }
+  .eyebrow{
+    color: var(--ink-dim);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    min-height: 14px;
+    opacity: 0.8;
+  }
+  #story{
+    font-size: 19px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    min-height: 180px;
+    letter-spacing: 0.01em;
+  }
+  #story .cursor{
+    display:inline-block;
+    width: 9px; height: 1.1em;
+    background: var(--ink);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 0.9s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+  #choices{
+    margin-top: 44px;
+    display:flex;
+    flex-direction: column;
+    gap: 14px;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  #choices.show{ opacity: 1; }
+  .choice{
+    background:none;
+    border:none;
+    border-left: 2px solid var(--line);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 16px;
+    text-align:left;
+    padding: 8px 0 8px 18px;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    transition: border-color 0.25s ease, color 0.25s ease, padding-left 0.25s ease;
+  }
+  .choice:hover, .choice:focus-visible{
+    border-color: var(--danger);
+    color: #fff;
+    padding-left: 26px;
+    outline: none;
+  }
+  .choice::before{ content: "› "; color: var(--ink-dim); }
+  #restart{
+    display:none;
+    margin-top: 44px;
+    background:none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    cursor: pointer;
+    align-self:flex-start;
+    transition: all 0.25s ease;
+  }
+  #restart:hover{ color: var(--ink); border-color: var(--ink-dim); }
+  #restart.show{ display:inline-block; }
+  #title-screen{
+    position:fixed; inset:0; z-index: 10;
+    background: var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap: 32px;
+    transition: opacity 0.9s ease;
+  }
+  #title-screen h1{
+    font-weight: 400;
+    font-size: clamp(22px, 4vw, 30px);
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    text-align:center;
+    max-width: 500px;
+    line-height: 1.5;
+  }
+  #title-screen .sub{
+    color: var(--ink-dim);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  #start-btn{
+    background:none;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  #start-btn:hover{ border-color: var(--danger); background: var(--danger-glow); }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<div id="title-screen">
+  <div class="sub">um jogo de escolhas</div>
+  <h1>você acorda<br>em uma floresta.</h1>
+  <button id="start-btn">começar</button>
+</div>
+
+<div id="vignette"></div>
+
+<div class="wrap">
+  <div class="eyebrow" id="eyebrow"></div>
+  <div id="story"></div>
+  <div id="choices"></div>
+  <button id="restart">recomeçar</button>
+</div>
+
+<script>
+// ---------- história ----------
+const story = {
+  start: {
+    text: "Você acorda em uma floresta.\n\nO ar é frio. Não há lembrança de como chegou aqui.",
+    choices: [
+      { label: "Levantar e observar ao redor", next: "look" },
+      { label: "Continuar deitado e ouvir", next: "listen" }
+    ]
+  },
+  listen: {
+    text: "Você fica imóvel. Ao longe, um som — quase um sussurro, quase uma respiração. Não se repete.\n\nO silêncio volta a pesar sobre as árvores.",
+    choices: [ { label: "Levantar-se com cuidado", next: "look" } ]
+  },
+  look: {
+    text: "De pé, você vê troncos altos e retorcidos ao redor. Não há trilhas óbvias — mas duas direções chamam atenção: um caminho estreito entre as árvores, e, mais distante, um clarão. Talvez uma clareira.",
+    choices: [
+      { label: "Seguir o caminho entre as árvores", next: "path" },
+      { label: "Caminhar até a clareira", next: "clearing1" }
+    ]
+  },
+  path: {
+    text: "O caminho é apertado; galhos arranham seus braços. No chão, um pedaço de tecido rasgado, sujo de algo escuro e seco.\n\nMais à frente, a mata volta a se abrir.",
+    choices: [
+      { label: "Examinar o tecido de perto", next: "clue" },
+      { label: "Seguir sem parar", next: "dusk" }
+    ]
+  },
+  clue: {
+    text: "O tecido tem três furos alinhados, rasgados de dentro para fora. Não parece um acidente.\n\nVocê guarda o pensamento e segue em frente, mais alerta agora.",
+    choices: [ { label: "Continuar", next: "dusk" } ]
+  },
+  clearing1: {
+    text: "A clareira é ampla, ainda banhada de luz — o sol já está baixo. No centro, marcas escuras no chão, como se algo tivesse sido arrastado.\n\nVocê se sente exposto aqui, sem a cobertura das árvores.",
+    danger: true,
+    choices: [
+      { label: "Atravessar rápido pela clareira", next: "dusk_exposed" },
+      { label: "Voltar para a cobertura das árvores", next: "path" }
+    ]
+  },
+  dusk: {
+    text: "O céu escurece rápido demais. Entre os troncos, as sombras parecem... esperar.\n\nA noite está chegando, e com ela algo muda no ar da floresta.",
+    choices: [
+      { label: "Procurar abrigo entre as árvores", next: "shelter" },
+      { label: "Seguir em frente, buscando uma saída", next: "clearing2" }
+    ]
+  },
+  dusk_exposed: {
+    text: "No meio da clareira, o sol se põe por completo. Você ouve passos atrás de si — leves, rápidos demais para serem seus.\n\nNão há tempo para pensar.",
+    danger: true,
+    choices: [
+      { label: "Correr para as árvores mais próximas", next: "chase" },
+      { label: "Ficar parado e observar", next: "end_death" }
+    ]
+  },
+  shelter: {
+    text: "Você encontra um tronco oco, largo o bastante para se esconder. Lá dentro, o cheiro de terra e umidade abafa qualquer outro som.\n\nA noite passa devagar. Uma vez, algo se move lá fora — rápido, quase sem peso, quase sem som. Depois, nada.",
+    choices: [ { label: "Esperar até o amanhecer", next: "dawn" } ]
+  },
+  clearing2: {
+    text: "Você chega a outra clareira, maior que a primeira. A lua ilumina tudo com um brilho quase azul.\n\nAo longe, entre as árvores do outro lado, uma silhueta observa — parada, alta demais para ser humana.",
+    danger: true,
+    choices: [
+      { label: "Correr direto pela clareira", next: "chase" },
+      { label: "Recuar silenciosamente para a mata", next: "shelter" }
+    ]
+  },
+  chase: {
+    text: "Você corre. Atrás de si, os passos aceleram — rápidos, leves, cada vez mais próximos.\n\nUma abertura entre as árvores surge à frente: talvez seja a borda da floresta.",
+    danger: true,
+    choices: [ { label: "Arriscar tudo e correr para a abertura", next: "end_ambiguous" } ]
+  },
+  dawn: {
+    text: "A luz cinza do amanhecer entra pelo tronco oco. Você sai, cauteloso.\n\nA floresta parece diferente sob o sol — silenciosa, comum, quase inofensiva. À frente, entre as árvores, você avista uma estrada.",
+    choices: [ { label: "Caminhar até a estrada", next: "end_success" } ]
+  },
+  end_success: {
+    text: "FIM — você sobrevive.\n\nA estrada leva para longe da floresta. Atrás de você, entre os troncos, o silêncio permanece — como se a floresta já tivesse esquecido que você esteve ali.",
+    ending: "success"
+  },
+  end_ambiguous: {
+    text: "FIM — uma saída incerta.\n\nVocê atravessa a abertura e sai da floresta, ofegante. Mas há uma dor fina no pescoço que você não sabia que tinha. Ao tocar, seus dedos ficam úmidos.\n\nO sol nasce. Você não sabe se isso ainda importa.",
+    ending: "ambiguous"
+  },
+  end_death: {
+    text: "FIM.\n\nA última coisa que você vê é o brilho da lua refletido em algo afiado demais para ser um sorriso.",
+    ending: "death"
+  }
+};
+
+// ---------- áudio ----------
+let audioCtx = null;
+function initAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+function typeBeep(danger){
+  if(!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.value = danger ? 180 + Math.random()*30 : 320 + Math.random()*40;
+  gain.gain.value = 0.035;
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.045);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ---------- motor do jogo ----------
+const storyEl = document.getElementById("story");
+const choicesEl = document.getElementById("choices");
+const eyebrowEl = document.getElementById("eyebrow");
+const restartBtn = document.getElementById("restart");
+const vignette = document.getElementById("vignette");
+let typing = false;
+let stepCount = 0;
+
+function renderNode(id){
+  const node = story[id];
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  restartBtn.classList.remove("show");
+  vignette.classList.toggle("danger", !!node.danger);
+  stepCount++;
+  eyebrowEl.textContent = node.ending ? "" : ("· " + String(stepCount).padStart(2,"0"));
+  typeText(node.text, !!node.danger, () => {
+    if(node.ending){
+      restartBtn.classList.add("show");
+      return;
+    }
+    node.choices.forEach(choice => {
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.textContent = choice.label;
+      btn.onclick = () => renderNode(choice.next);
+      choicesEl.appendChild(btn);
+    });
+    choicesEl.classList.add("show");
+  });
+}
+
+function typeText(text, danger, onDone){
+  typing = true;
+  storyEl.textContent = "";
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  let i = 0;
+  function step(){
+    if(i < text.length){
+      storyEl.textContent = text.slice(0, i+1);
+      storyEl.appendChild(cursor);
+      const ch = text[i];
+      if(ch.trim() !== "") typeBeep(danger);
+      i++;
+      const delay = (ch === "." || ch === "\n") ? 90 : 18 + Math.random()*14;
+      setTimeout(step, delay);
+    } else {
+      cursor.remove();
+      typing = false;
+      onDone();
+    }
+  }
+  step();
+}
+
+document.getElementById("start-btn").addEventListener("click", () => {
+  initAudio();
+  document.getElementById("title-screen").style.opacity = "0";
+  setTimeout(() => document.getElementById("title-screen").classList.add("hidden"), 900);
+  renderNode("start");
+});
+
+restartBtn.addEventListener("click", () => {
+  stepCount = 0;
+  renderNode("start");
+});
+
+// pular digitação com clique na tela
+document.addEventListener("click", (e) => {
+  if(e.target.id === "start-btn" || e.target.classList.contains("choice") || e.target.id === "restart") return;
+});
+</script>
+</body>
+</html>
