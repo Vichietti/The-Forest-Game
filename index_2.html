@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>você acorda em uma floresta.</title>
+<style>
+  :root{
+    --bg: #0a0f0c;
+    --bg-2: #0e1512;
+    --ink: #cdd9d0;
+    --ink-dim: #6f8079;
+    --danger: #7a2130;
+    --danger-glow: #b3435530;
+    --line: #223028;
+  }
+  * { box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(ellipse at 50% 20%, var(--bg-2), var(--bg) 70%);
+    color: var(--ink);
+    font-family: "Courier New", ui-monospace, "IBM Plex Mono", monospace;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+    pointer-events:none;
+    mix-blend-mode: overlay;
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none;
+    box-shadow: inset 0 0 160px 40px rgba(0,0,0,0.85);
+    transition: box-shadow 0.6s ease;
+    z-index: 5;
+  }
+  #vignette.danger{
+    box-shadow: inset 0 0 220px 60px rgba(122,33,48,0.35), inset 0 0 160px 40px rgba(0,0,0,0.85);
+  }
+  .wrap{
+    position:relative; z-index:2;
+    max-width: 640px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 8vh 24px 10vh;
+  }
+  .eyebrow{
+    color: var(--ink-dim);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    min-height: 14px;
+    opacity: 0.8;
+  }
+  #story{
+    font-size: 19px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    min-height: 180px;
+    letter-spacing: 0.01em;
+  }
+  #story .cursor{
+    display:inline-block;
+    width: 9px; height: 1.1em;
+    background: var(--ink);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 0.9s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+  #choices{
+    margin-top: 44px;
+    display:flex;
+    flex-direction: column;
+    gap: 14px;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  #choices.show{ opacity: 1; }
+  .choice{
+    background:none;
+    border:none;
+    border-left: 2px solid var(--line);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 16px;
+    text-align:left;
+    padding: 8px 0 8px 18px;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    transition: border-color 0.25s ease, color 0.25s ease, padding-left 0.25s ease;
+  }
+  .choice:hover, .choice:focus-visible{
+    border-color: var(--danger);
+    color: #fff;
+    padding-left: 26px;
+    outline: none;
+  }
+  .choice::before{ content: "› "; color: var(--ink-dim); }
+  #restart{
+    display:none;
+    margin-top: 44px;
+    background:none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    cursor: pointer;
+    align-self:flex-start;
+    transition: all 0.25s ease;
+  }
+  #restart:hover{ color: var(--ink); border-color: var(--ink-dim); }
+  #restart.show{ display:inline-block; }
+  #title-screen{
+    position:fixed; inset:0; z-index: 10;
+    background: var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap: 32px;
+    transition: opacity 0.9s ease;
+  }
+  #title-screen h1{
+    font-weight: 400;
+    font-size: clamp(22px, 4vw, 30px);
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    text-align:center;
+    max-width: 500px;
+    line-height: 1.5;
+  }
+  #title-screen .sub{
+    color: var(--ink-dim);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  #start-btn{
+    background:none;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  #start-btn:hover{ border-color: var(--danger); background: var(--danger-glow); }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<div id="title-screen">
+  <div class="sub">um jogo de escolhas</div>
+  <h1>você acorda<br>em uma floresta.</h1>
+  <button id="start-btn">começar</button>
+</div>
+
+<div id="vignette"></div>
+
+<div class="wrap">
+  <div class="eyebrow" id="eyebrow"></div>
+  <div id="story"></div>
+  <div id="choices"></div>
+  <button id="restart">recomeçar</button>
+</div>
+
+<script>
+// ================== CONFIGURAÇÃO DO MUNDO ==================
+const GRID_SIZE = 7;
+const DIRS = {
+  norte: { dx: 0, dy: -1 },
+  sul:   { dx: 0, dy: 1 },
+  leste: { dx: 1, dy: 0 },
+  oeste: { dx: -1, dy: 0 }
+};
+
+// probabilidade de "game over" por [tipo de local][hora do dia]
+// hora: 0 Ensolarado, 1 Crepúsculo, 2 Nas Sombras, 3 Noite
+const RISK_TABLE = {
+  floresta: [0,    0,    0.15, 0.40],
+  clareira: [0,    0.35, 0.65, 1.00],
+  caminho:  [0,    0.15, 0.40, 0.70],
+  topo:     [0,    0,    0.60, 0.85]
+};
+
+const HOUR_TRANSITION_MSG = [
+  null,
+  "A luz muda. Já é fim de tarde.",
+  "As sombras entre as árvores ficam mais longas e mais escuras.",
+  "A escuridão finalmente toma conta da floresta."
+];
+
+const EVENTS = [
+  {
+    id: "mae",
+    initial: "Sua mãe está no aeroporto.",
+    timeMessages: ["Sua mãe logo estará nas sombras.", "O tempo da sua mãe está acabando."],
+    early: "Você buscou a sua mãe com sucesso.",
+    moderate: "Você chegou a tempo, mas encontrou sua mãe sozinha e assustada, no escuro.",
+    late: ["Você demorou demais — os vampiros alcançaram a sua mãe.", "Você demorou demais — sua mãe perdeu o voo dela."]
+  },
+  {
+    id: "forno",
+    initial: "Você deixou o forno aceso.",
+    timeMessages: ["A temperatura continua a aumentar.", "O fogo continua a queimar."],
+    early: "Você apagou o fogo a tempo. Seu jantar está pronto.",
+    moderate: "Você demorou demais — seu jantar passou do ponto.",
+    late: ["Você demorou demais — você perdeu sua casa para o fogo."]
+  },
+  {
+    id: "esposa",
+    initial: "Sua esposa está preparando o jantar.",
+    timeMessages: ["Sua esposa precisa que você chegue com o leite.", "Sua esposa logo estará nas sombras.", "Sua esposa está com fome."],
+    early: "Você chegou em casa — o jantar está pronto.",
+    moderate: "Você chegou em casa — o jantar está frio.",
+    late: ["Você chegou em casa — sua esposa não está lá."]
+  },
+  {
+    id: "reuniao",
+    initial: "Você está se atrasando para a sua reunião.",
+    timeMessages: ["Seu chefe está impaciente.", "Seu chefe está infeliz."],
+    early: "Você chegou a tempo para sua reunião.",
+    moderate: "Você entrou atrasado em sua reunião.",
+    late: ["Você perdeu a sua reunião.", "Você foi demitido."]
+  }
+];
+
+const CLUE_TEMPLATES = {
+  0: {
+    norte: ["O musgo cresce mais grosso no lado norte dos troncos ao seu redor."],
+    sul:   ["Os troncos parecem mais secos e claros, voltados para o sul, onde bate mais sol."],
+    leste: ["Do lado leste dos troncos, a casca parece mais clara e seca."],
+    oeste: ["No lado oeste dos troncos, a casca é mais escura e úmida."]
+  },
+  1: {
+    norte: ["Uma trilha de folhas amassadas segue para o norte, cortando a luz baixa."],
+    sul:   ["Marcas recentes na terra vão para o sul, contra o brilho do poente."],
+    leste: ["No chão, os rastros seguem para o lado oposto ao sol poente."],
+    oeste: ["No chão se vê rastros indo na direção do sol."]
+  },
+  2: {
+    norte: ["Um vento frio sopra, vindo do norte."],
+    sul:   ["Um vento frio sopra, vindo do sul."],
+    leste: ["Um vento frio sopra, vindo do leste."],
+    oeste: ["Um vento frio sopra, vindo do oeste."]
+  },
+  3: {
+    norte: ["Entre as copas, um clarão pálido marca o norte do céu."],
+    sul:   ["Entre as copas, um clarão pálido marca o sul do céu."],
+    leste: ["Entre as copas, um clarão pálido marca o leste do céu."],
+    oeste: ["Entre as copas, um clarão pálido marca o oeste do céu."]
+  }
+};
+
+const FLAVOR = {
+  floresta: ["Mais floresta.", "Você vê mais floresta ao seu redor.", "Troncos e mais troncos, sem fim aparente."],
+  caminho: ["Você encontra um caminho estreito entre as árvores.", "O chão aqui é mais firme — parece um caminho.", "Uma trilha discreta corta a vegetação."],
+  clareira: ["Você chega a uma clareira.", "As árvores se abrem numa clareira.", "Um espaço aberto surge entre os troncos."],
+  bump: ["Vegetação densa demais bloqueia esse caminho.", "Não há passagem por aqui.", "O mato se fecha, impossível de atravessar nessa direção."],
+  topo: ["Do alto, você enxerga apenas mais floresta, em todas as direções.", "Lá de cima, as copas se estendem sem fim visível."],
+  exploreClareira: ["Nada além de grama pisada e silêncio.", "O vento cruza a clareira sem obstáculos.", "Você não encontra nada de útil aqui."]
+};
+
+// ================== ESTADO DO JOGO ==================
+let state = null;
+
+function choice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function randInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function manhattan(x1,y1,x2,y2){ return Math.abs(x1-x2)+Math.abs(y1-y2); }
+function cellKey(x,y){ return x+","+y; }
+
+function initGame(){
+  const start = { x: 3, y: 3 };
+  let exit;
+  do {
+    exit = { x: randInt(0, GRID_SIZE-1), y: randInt(0, GRID_SIZE-1) };
+  } while(
+    (exit.x === start.x && exit.y === start.y) ||
+    manhattan(exit.x, exit.y, start.x, start.y) < 4 ||
+    manhattan(exit.x, exit.y, start.x, start.y) > 8
+  );
+
+  const cellTypes = {};
+  for(let x=0;x<GRID_SIZE;x++){
+    for(let y=0;y<GRID_SIZE;y++){
+      if(x === start.x && y === start.y){ cellTypes[cellKey(x,y)] = "floresta"; continue; }
+      if(x === exit.x && y === exit.y){ cellTypes[cellKey(x,y)] = "caminho"; continue; }
+      const r = Math.random();
+      cellTypes[cellKey(x,y)] = r < 0.15 ? "clareira" : (r < 0.35 ? "caminho" : "floresta");
+    }
+  }
+
+  state = {
+    x: start.x, y: start.y,
+    exit,
+    cellTypes,
+    hourIndex: 0,
+    actionCount: 0,
+    actionsSinceStage: 0,
+    stageThreshold: randInt(2,4),
+    climbed: false,
+    firstActionTaken: false,
+    event: choice(EVENTS),
+    eventTimeIndex: 0
+  };
+}
+
+function getCellType(x,y){ return state.cellTypes[cellKey(x,y)] || "floresta"; }
+function currentType(){ return state.climbed ? "topo" : getCellType(state.x, state.y); }
+
+function bestDirection(){
+  const dx = state.exit.x - state.x;
+  const dy = state.exit.y - state.y;
+  const options = [];
+  if(dx > 0) options.push("leste");
+  if(dx < 0) options.push("oeste");
+  if(dy > 0) options.push("sul");
+  if(dy < 0) options.push("norte");
+  if(options.length === 0) return choice(["norte","sul","leste","oeste"]);
+  return choice(options);
+}
+
+function DEATH_TEXT(){
+  return choice([
+    "Você ouve um som atrás de si — leve, rápido demais para ser seu. Não há tempo para reagir.\n\nFIM.",
+    "Algo se move entre os troncos, rápido demais para ver. A última coisa que você sente é o frio.\n\nFIM."
+  ]);
+}
+
+function availableActions(){
+  const actions = [];
+  if(!state.climbed){
+    actions.push({ label: "Seguir para o norte", type: "move", dir: "norte" });
+    actions.push({ label: "Seguir para o sul", type: "move", dir: "sul" });
+    actions.push({ label: "Seguir para o leste", type: "move", dir: "leste" });
+    actions.push({ label: "Seguir para o oeste", type: "move", dir: "oeste" });
+    actions.push({ label: "Olhar ao redor", type: "look" });
+    const type = getCellType(state.x, state.y);
+    if(type !== "clareira"){
+      actions.push({ label: "Subir em uma árvore", type: "climb" });
+    } else {
+      actions.push({ label: "Explorar a clareira", type: "explore" });
+    }
+    if(state.x === state.exit.x && state.y === state.exit.y){
+      actions.push({ label: "Sair da floresta", type: "exit" });
+    }
+  } else {
+    actions.push({ label: "Olhar ao redor (do alto)", type: "look" });
+    actions.push({ label: "Descer da árvore", type: "descend" });
+  }
+  return actions;
+}
+
+function processAction(action){
+  if(action.type === "exit"){
+    finishGame();
+    return;
+  }
+
+  let lines = [];
+
+  if(action.type === "move"){
+    const d = DIRS[action.dir];
+    const nx = state.x + d.dx, ny = state.y + d.dy;
+    if(nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE){
+      lines.push(choice(FLAVOR.bump));
+    } else {
+      state.x = nx; state.y = ny;
+      lines.push(choice(FLAVOR[getCellType(nx, ny)]));
+    }
+  } else if(action.type === "look"){
+    const clueChance = 0.35;
+    if(Math.random() < clueChance){
+      const dir = bestDirection();
+      lines.push(choice(CLUE_TEMPLATES[state.hourIndex][dir]));
+    } else {
+      lines.push(state.climbed ? choice(FLAVOR.topo) : choice(FLAVOR[getCellType(state.x, state.y)]));
+    }
+  } else if(action.type === "climb"){
+    state.climbed = true;
+    lines.push("Você sobe em uma árvore alta.");
+    lines.push(choice(FLAVOR.topo));
+  } else if(action.type === "descend"){
+    state.climbed = false;
+    lines.push("Você desce da árvore.");
+  } else if(action.type === "explore"){
+    lines.push(choice(FLAVOR.exploreClareira));
+  }
+
+  state.actionCount++;
+  state.actionsSinceStage++;
+
+  if(!state.firstActionTaken){
+    state.firstActionTaken = true;
+    lines.push(state.event.initial);
+  }
+
+  if(state.actionsSinceStage >= state.stageThreshold && state.hourIndex < 3){
+    state.hourIndex++;
+    state.actionsSinceStage = 0;
+    state.stageThreshold = randInt(2,4);
+    lines.push(HOUR_TRANSITION_MSG[state.hourIndex]);
+    if(state.eventTimeIndex < state.event.timeMessages.length){
+      lines.push(state.event.timeMessages[state.eventTimeIndex]);
+      state.eventTimeIndex++;
+    }
+  }
+
+  const type = currentType();
+  const prob = RISK_TABLE[type][state.hourIndex];
+  const dangerFlag = prob > 0;
+  if(prob > 0 && Math.random() < prob){
+    renderEnding(lines.concat([DEATH_TEXT()]), true);
+    return;
+  }
+
+  renderScene(lines, dangerFlag);
+}
+
+function finishGame(){
+  let wrap, eventMsg;
+  if(state.actionCount <= 6){
+    wrap = "Você sai da floresta antes que a escuridão tome conta de tudo. Atrás de você, os troncos voltam a ficar imóveis, como se nada tivesse acontecido.";
+    eventMsg = state.event.early;
+  } else if(state.actionCount <= 12){
+    wrap = "Você sai da floresta, mas o dia já foi longe demais. Atrás de você, a floresta permanece em silêncio — um silêncio que parece satisfeito.";
+    eventMsg = state.event.moderate;
+  } else {
+    wrap = "Você finalmente sai da floresta. Está vivo — isso é mais do que muitos podem dizer. Mas o mundo lá fora seguiu sem esperar por você.";
+    eventMsg = choice(state.event.late);
+  }
+  renderEnding([wrap, eventMsg], false);
+}
+
+// ================== ÁUDIO ==================
+let audioCtx = null;
+function initAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+function typeBeep(danger){
+  if(!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.value = danger ? 180 + Math.random()*30 : 320 + Math.random()*40;
+  gain.gain.value = 0.035;
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.045);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ================== RENDERIZAÇÃO ==================
+const storyEl = document.getElementById("story");
+const choicesEl = document.getElementById("choices");
+const eyebrowEl = document.getElementById("eyebrow");
+const restartBtn = document.getElementById("restart");
+const vignette = document.getElementById("vignette");
+let typing = false;
+
+function typeText(text, danger, onDone){
+  typing = true;
+  storyEl.textContent = "";
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  let i = 0;
+  function step(){
+    if(i < text.length){
+      storyEl.textContent = text.slice(0, i+1);
+      storyEl.appendChild(cursor);
+      const ch = text[i];
+      if(ch.trim() !== "") typeBeep(danger);
+      i++;
+      const delay = (ch === "." || ch === "\n") ? 90 : 18 + Math.random()*14;
+      setTimeout(step, delay);
+    } else {
+      cursor.remove();
+      typing = false;
+      onDone();
+    }
+  }
+  step();
+}
+
+function renderScene(lines, danger){
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  restartBtn.classList.remove("show");
+  vignette.classList.toggle("danger", !!danger);
+  eyebrowEl.textContent = "· " + String(state.actionCount).padStart(2,"0");
+  const text = lines.filter(Boolean).join("\n\n");
+  typeText(text, !!danger, () => {
+    availableActions().forEach(a => {
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.textContent = a.label;
+      btn.onclick = () => processAction(a);
+      choicesEl.appendChild(btn);
+    });
+    choicesEl.classList.add("show");
+  });
+}
+
+function renderEnding(lines, danger){
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  vignette.classList.toggle("danger", !!danger);
+  eyebrowEl.textContent = "";
+  const text = lines.filter(Boolean).join("\n\n");
+  typeText(text, !!danger, () => {
+    restartBtn.classList.add("show");
+  });
+}
+
+function startGame(){
+  initGame();
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  restartBtn.classList.remove("show");
+  vignette.classList.remove("danger");
+  eyebrowEl.textContent = "";
+  typeText("Você acorda em uma floresta.", false, () => {
+    availableActions().forEach(a => {
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.textContent = a.label;
+      btn.onclick = () => processAction(a);
+      choicesEl.appendChild(btn);
+    });
+    choicesEl.classList.add("show");
+  });
+}
+
+document.getElementById("start-btn").addEventListener("click", () => {
+  initAudio();
+  document.getElementById("title-screen").style.opacity = "0";
+  setTimeout(() => document.getElementById("title-screen").classList.add("hidden"), 900);
+  startGame();
+});
+
+restartBtn.addEventListener("click", () => {
+  startGame();
+});
+</script>
+</body>
+</html>
