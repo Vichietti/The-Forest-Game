@@ -35,9 +35,6 @@
     transition: box-shadow 0.6s ease;
     z-index: 5;
   }
-  #vignette.danger{
-    box-shadow: inset 0 0 220px 60px rgba(122,33,48,0.35), inset 0 0 160px 40px rgba(0,0,0,0.85);
-  }
   .wrap{
     position:relative; z-index:2;
     max-width: 640px;
@@ -93,7 +90,7 @@
     padding: 8px 0 8px 18px;
     cursor: pointer;
     letter-spacing: 0.01em;
-    transition: border-color 0.25s ease, color 0.25s ease, padding-left 0.25s ease;
+    transition: border-color 0.25s ease, color 0.25s ease, padding-left 0.25s ease, opacity 0.25s ease;
   }
   .choice:hover, .choice:focus-visible{
     border-color: var(--danger);
@@ -102,6 +99,12 @@
     outline: none;
   }
   .choice::before{ content: "› "; color: var(--ink-dim); }
+  .choice.disabled{
+    opacity: 0.32;
+    filter: grayscale(1);
+    cursor: not-allowed;
+    pointer-events: none;
+  }
   #restart{
     display:none;
     margin-top: 44px;
@@ -175,96 +178,507 @@
 </div>
 
 <script>
-// ---------- história ----------
-const story = {
-  start: {
-    text: "Você acorda em uma floresta.\n\nO ar é frio. Não há lembrança de como chegou aqui.",
-    choices: [
-      { label: "Levantar e observar ao redor", next: "look" },
-      { label: "Continuar deitado e ouvir", next: "listen" }
-    ]
+// ================== CONFIGURAÇÃO DO MUNDO ==================
+const GRID_SIZE = 7;
+const DIRS = {
+  norte: { dx: 0, dy: -1 },
+  sul:   { dx: 0, dy: 1 },
+  leste: { dx: 1, dy: 0 },
+  oeste: { dx: -1, dy: 0 }
+};
+const DIR_WORDS = { norte: "norte", sul: "sul", leste: "leste", oeste: "oeste" };
+const OPPOSITE_DIR = { norte: "sul", sul: "norte", leste: "oeste", oeste: "leste" };
+
+const LOOK_CLUE_CHANCE = 0.35;
+const CLIMB_CLUE_CHANCE = 0.70;
+const EXPLORE_CLUE_CHANCE = 0.85;
+const CLIMB_INSTANT_CLUE_CHANCE = 1/3;
+
+const LAKE_COUNT = 2;
+const RIVER_COUNT = 2;
+
+// probabilidade de "game over" por [tipo de local][hora do dia]
+// hora: 0 Ensolarado, 1 Crepúsculo, 2 Nas Sombras, 3 Noite
+const RISK_TABLE = {
+  floresta: [0,    0,    0.15, 0.40],
+  clareira: [0,    0.35, 0.65, 1.00],
+  caminho:  [0,    0.15, 0.40, 0.70],
+  topo:     [0,    0,    0.60, 0.85]
+};
+
+const HOUR_TRANSITION_MSG = [
+  null,
+  "A luz muda. Já é fim de tarde.",
+  "As sombras entre as árvores ficam mais longas e mais escuras.",
+  "A escuridão finalmente toma conta da floresta."
+];
+
+const EVENTS = [
+  {
+    id: "mae",
+    initial: "Sua mãe está no aeroporto.",
+    timeMessages: ["Sua mãe logo estará nas sombras.", "O tempo da sua mãe está acabando."],
+    early: "Você buscou a sua mãe com sucesso.",
+    moderate: "Você chegou a tempo, mas encontrou sua mãe sozinha e assustada, no escuro.",
+    late: ["Você demorou demais — os vampiros alcançaram a sua mãe.", "Você demorou demais — sua mãe perdeu o voo dela."]
   },
-  listen: {
-    text: "Você fica imóvel. Ao longe, um som — quase um sussurro, quase uma respiração. Não se repete.\n\nO silêncio volta a pesar sobre as árvores.",
-    choices: [ { label: "Levantar-se com cuidado", next: "look" } ]
+  {
+    id: "forno",
+    initial: "Você deixou o forno aceso.",
+    timeMessages: ["A temperatura continua a aumentar.", "O fogo continua a queimar."],
+    early: "Você apagou o fogo a tempo. Seu jantar está pronto.",
+    moderate: "Você demorou demais — seu jantar passou do ponto.",
+    late: ["Você demorou demais — você perdeu sua casa para o fogo."]
   },
-  look: {
-    text: "De pé, você vê troncos altos e retorcidos ao redor. Não há trilhas óbvias — mas duas direções chamam atenção: um caminho estreito entre as árvores, e, mais distante, um clarão. Talvez uma clareira.",
-    choices: [
-      { label: "Seguir o caminho entre as árvores", next: "path" },
-      { label: "Caminhar até a clareira", next: "clearing1" }
-    ]
+  {
+    id: "esposa",
+    initial: "Sua esposa está preparando o jantar.",
+    timeMessages: ["Sua esposa precisa que você chegue com o leite.", "Sua esposa logo estará nas sombras.", "Sua esposa está com fome."],
+    early: "Você chegou em casa — o jantar está pronto.",
+    moderate: "Você chegou em casa — o jantar está frio.",
+    late: ["Você chegou em casa — sua esposa não está lá."]
   },
-  path: {
-    text: "O caminho é apertado; galhos arranham seus braços. No chão, um pedaço de tecido rasgado, sujo de algo escuro e seco.\n\nMais à frente, a mata volta a se abrir.",
-    choices: [
-      { label: "Examinar o tecido de perto", next: "clue" },
-      { label: "Seguir sem parar", next: "dusk" }
-    ]
+  {
+    id: "reuniao",
+    initial: "Você está se atrasando para a sua reunião.",
+    timeMessages: ["Seu chefe está impaciente.", "Seu chefe está infeliz."],
+    early: "Você chegou a tempo para sua reunião.",
+    moderate: "Você entrou atrasado em sua reunião.",
+    late: ["Você perdeu a sua reunião.", "Você foi demitido."]
+  }
+];
+
+// pistas de chão — próximas, sensoriais, táteis
+const GROUND_CLUES = {
+  0: {
+    norte: ["O musgo cresce mais grosso no lado norte dos troncos ao seu redor.", "As raízes parecem mais grossas do lado norte de cada árvore."],
+    sul:   ["Os troncos parecem mais secos e claros, voltados para o sul, onde bate mais sol.", "A vegetação rasteira está mais amarelada de um lado — ao sul."],
+    leste: ["Do lado leste dos troncos, a casca parece mais clara e seca.", "Pequenas rachaduras na casca aparecem mais no lado leste dos troncos."],
+    oeste: ["No lado oeste dos troncos, a casca é mais escura e úmida.", "A terra ao pé das árvores está mais escura de um lado — voltado a oeste."]
   },
-  clue: {
-    text: "O tecido tem três furos alinhados, rasgados de dentro para fora. Não parece um acidente.\n\nVocê guarda o pensamento e segue em frente, mais alerta agora.",
-    choices: [ { label: "Continuar", next: "dusk" } ]
+  1: {
+    norte: ["Uma trilha de folhas amassadas segue para o norte, cortando a luz baixa.", "Um galho quebrado aponta para o norte, ainda com a seiva fresca."],
+    sul:   ["Marcas recentes na terra vão para o sul, contra o brilho do poente.", "Pegadas rasas na terra ainda úmida seguem para o sul."],
+    leste: ["No chão, os rastros seguem para o lado oposto ao sol poente.", "A claridade que resta no céu vem só de um lado — o oposto ao poente."],
+    oeste: ["No chão se vê rastros indo na direção do sol.", "Uma trilha de folhas reviradas segue na direção do sol poente."]
   },
-  clearing1: {
-    text: "A clareira é ampla, ainda banhada de luz — o sol já está baixo. No centro, marcas escuras no chão, como se algo tivesse sido arrastado.\n\nVocê se sente exposto aqui, sem a cobertura das árvores.",
-    danger: true,
-    choices: [
-      { label: "Atravessar rápido pela clareira", next: "dusk_exposed" },
-      { label: "Voltar para a cobertura das árvores", next: "path" }
-    ]
+  2: {
+    norte: ["Um vento frio sopra, vindo do norte.", "Um cheiro de terra fresca vem forte de um lado — do norte."],
+    sul:   ["Um vento frio sopra, vindo do sul.", "Os galhos baixos balançam mais de um lado só — vindo do sul."],
+    leste: ["Um vento frio sopra, vindo do leste.", "Um som abafado, como água corrente, vem do leste."],
+    oeste: ["Um vento frio sopra, vindo do oeste.", "As folhas secas se movem sozinhas — empurradas de oeste."]
   },
-  dusk: {
-    text: "O céu escurece rápido demais. Entre os troncos, as sombras parecem... esperar.\n\nA noite está chegando, e com ela algo muda no ar da floresta.",
-    choices: [
-      { label: "Procurar abrigo entre as árvores", next: "shelter" },
-      { label: "Seguir em frente, buscando uma saída", next: "clearing2" }
-    ]
-  },
-  dusk_exposed: {
-    text: "No meio da clareira, o sol se põe por completo. Você ouve passos atrás de si — leves, rápidos demais para serem seus.\n\nNão há tempo para pensar.",
-    danger: true,
-    choices: [
-      { label: "Correr para as árvores mais próximas", next: "chase" },
-      { label: "Ficar parado e observar", next: "end_death" }
-    ]
-  },
-  shelter: {
-    text: "Você encontra um tronco oco, largo o bastante para se esconder. Lá dentro, o cheiro de terra e umidade abafa qualquer outro som.\n\nA noite passa devagar. Uma vez, algo se move lá fora — rápido, quase sem peso, quase sem som. Depois, nada.",
-    choices: [ { label: "Esperar até o amanhecer", next: "dawn" } ]
-  },
-  clearing2: {
-    text: "Você chega a outra clareira, maior que a primeira. A lua ilumina tudo com um brilho quase azul.\n\nAo longe, entre as árvores do outro lado, uma silhueta observa — parada, alta demais para ser humana.",
-    danger: true,
-    choices: [
-      { label: "Correr direto pela clareira", next: "chase" },
-      { label: "Recuar silenciosamente para a mata", next: "shelter" }
-    ]
-  },
-  chase: {
-    text: "Você corre. Atrás de si, os passos aceleram — rápidos, leves, cada vez mais próximos.\n\nUma abertura entre as árvores surge à frente: talvez seja a borda da floresta.",
-    danger: true,
-    choices: [ { label: "Arriscar tudo e correr para a abertura", next: "end_ambiguous" } ]
-  },
-  dawn: {
-    text: "A luz cinza do amanhecer entra pelo tronco oco. Você sai, cauteloso.\n\nA floresta parece diferente sob o sol — silenciosa, comum, quase inofensiva. À frente, entre as árvores, você avista uma estrada.",
-    choices: [ { label: "Caminhar até a estrada", next: "end_success" } ]
-  },
-  end_success: {
-    text: "FIM — você sobrevive.\n\nA estrada leva para longe da floresta. Atrás de você, entre os troncos, o silêncio permanece — como se a floresta já tivesse esquecido que você esteve ali.",
-    ending: "success"
-  },
-  end_ambiguous: {
-    text: "FIM — uma saída incerta.\n\nVocê atravessa a abertura e sai da floresta, ofegante. Mas há uma dor fina no pescoço que você não sabia que tinha. Ao tocar, seus dedos ficam úmidos.\n\nO sol nasce. Você não sabe se isso ainda importa.",
-    ending: "ambiguous"
-  },
-  end_death: {
-    text: "FIM.\n\nA última coisa que você vê é o brilho da lua refletido em algo afiado demais para ser um sorriso.",
-    ending: "death"
+  3: {
+    norte: ["Entre as copas, um clarão pálido marca o norte do céu.", "Ao longe, ao norte, algo reflete uma luz fraca entre os troncos."],
+    sul:   ["Entre as copas, um clarão pálido marca o sul do céu.", "Um silêncio mais pesado vem do sul, como se a mata se abrisse ali."],
+    leste: ["Entre as copas, um clarão pálido marca o leste do céu.", "Sons de grilos somem de repente a leste — como se o chão mudasse ali."],
+    oeste: ["Entre as copas, um clarão pálido marca o oeste do céu.", "Uma trilha de neblina rasteira segue para oeste."]
   }
 };
 
-// ---------- áudio ----------
+// pistas do topo da árvore — mais amplas, panorâmicas
+const TREETOP_CLUES = {
+  0: {
+    norte: ["Da copa, você nota que as árvores ficam mais baixas para o norte — sinal de terreno mais aberto.", "Ao norte, o topo da mata parece menos denso, como se clareasse mais adiante."],
+    sul:   ["Para o sul, um brilho mais forte no chão sugere menos copa cobrindo o caminho.", "As copas ao sul parecem mais espaçadas, deixando passar mais luz."],
+    leste: ["A leste, uma leve neblina baixa marca uma faixa mais aberta entre as árvores.", "Do alto, ao leste, o topo das árvores forma um vão maior que o resto."],
+    oeste: ["A oeste, o topo da mata ganha um tom mais claro, quase dourado.", "Ao oeste, as copas se abrem num pequeno vão visível daqui de cima."]
+  },
+  1: {
+    norte: ["Daqui de cima, a última luz do dia ainda ilumina uma faixa ao norte.", "Ao norte, uma linha mais clara corta o topo das árvores."],
+    sul:   ["Ao sul, uma faixa de copas mais baixas corta a floresta em linha reta.", "Da altura, o sul parece ter menos árvores do que o resto."],
+    leste: ["A leste, o céu já escurece mais rápido — sinal de nuvens baixas ou clareira.", "Do alto, a leste, as copas se abrem num vão irregular."],
+    oeste: ["A oeste, o sol ainda bate cheio sobre uma faixa aberta entre as árvores.", "Da copa, o oeste ainda guarda um brilho quente entre os galhos."]
+  },
+  2: {
+    norte: ["Lá do alto, um som distante de água ou vento parece vir do norte.", "Ao norte, o vento bate diferente — mais livre, como se passasse por um vão."],
+    sul:   ["Ao sul, as copas se mexem de forma diferente — como se o vento passasse por um vão.", "Da altura, um cheiro de terra molhada sobe vindo do sul."],
+    leste: ["A leste, um cheiro de terra molhada sobe entre as árvores.", "Do alto, a leste, um silêncio maior sugere um espaço aberto."],
+    oeste: ["A oeste, o silêncio parece mais denso — típico de um caminho mais aberto.", "Daqui de cima, o oeste está estranhamente quieto."]
+  },
+  3: {
+    norte: ["Do alto, um clarão pálido no horizonte norte corta a escuridão das copas.", "Ao norte, as estrelas parecem mais próximas do chão — sinal de clareira."],
+    sul:   ["Ao sul, um ponto de luz fraco pisca entre as árvores — talvez um caminho aberto.", "Da altura, ao sul, a copa parece se abrir num vão escuro."],
+    leste: ["A leste, as estrelas parecem mais baixas, como se a copa se abrisse ali.", "Do alto, a leste, um vento frio sobe de um vão entre as árvores."],
+    oeste: ["A oeste, um brilho difuso sugere um vão maior entre as árvores.", "Da copa, o oeste parece mais escuro que o resto — talvez mais denso."]
+  }
+};
+
+// anúncios de pontos de interesse nas imediações
+const OPENING_MSGS = {
+  norte: ["Ao norte, você vê uma abertura entre as árvores.", "Mais para o norte, a claridade muda — como se a mata se abrisse ali.", "Ao norte, os troncos parecem se afastar, deixando um vão maior."],
+  sul:   ["Ao sul, você vê uma abertura entre as árvores.", "Mais para o sul, a claridade muda — como se a mata se abrisse ali.", "Ao sul, os troncos parecem se afastar, deixando um vão maior."],
+  leste: ["A leste, você vê uma abertura entre as árvores.", "Mais para leste, a claridade muda — como se a mata se abrisse ali.", "A leste, os troncos parecem se afastar, deixando um vão maior."],
+  oeste: ["A oeste, você vê uma abertura entre as árvores.", "Mais para oeste, a claridade muda — como se a mata se abrisse ali.", "A oeste, os troncos parecem se afastar, deixando um vão maior."]
+};
+const PATH_MSGS = {
+  norte: ["Ao norte, você percebe um caminho batido entre as árvores.", "Ao norte, o chão parece mais firme — talvez uma trilha."],
+  sul:   ["Ao sul, você percebe um caminho batido entre as árvores.", "Ao sul, o chão parece mais firme — talvez uma trilha."],
+  leste: ["A leste, você percebe um caminho batido entre as árvores.", "A leste, o chão parece mais firme — talvez uma trilha."],
+  oeste: ["A oeste, você percebe um caminho batido entre as árvores.", "A oeste, o chão parece mais firme — talvez uma trilha."]
+};
+const WATER_WARNING_MSGS = {
+  norte: ["Do alto, você percebe água bloqueando o caminho ao norte.", "Lá de cima, dá pra ver água cortando a passagem ao norte."],
+  sul:   ["Do alto, você percebe água bloqueando o caminho ao sul.", "Lá de cima, dá pra ver água cortando a passagem ao sul."],
+  leste: ["Do alto, você percebe água bloqueando o caminho a leste.", "Lá de cima, dá pra ver água cortando a passagem a leste."],
+  oeste: ["Do alto, você percebe água bloqueando o caminho a oeste.", "Lá de cima, dá pra ver água cortando a passagem a oeste."]
+};
+
+const FLAVOR = {
+  floresta: ["Mais floresta.", "Você vê mais floresta ao seu redor.", "Troncos e mais troncos, sem fim aparente."],
+  caminho: ["Você encontra um caminho estreito entre as árvores.", "O chão aqui é mais firme — parece um caminho.", "Uma trilha discreta corta a vegetação."],
+  clareira: ["Você chega a uma clareira.", "As árvores se abrem numa clareira.", "Um espaço aberto surge entre os troncos."],
+  bump: ["Vegetação densa demais bloqueia esse caminho.", "Não há passagem por aqui.", "O mato se fecha, impossível de atravessar nessa direção."],
+  water: ["A água corre forte demais para atravessar por aqui.", "Um rio bloqueia a passagem — a correnteza é forte demais.", "Um lago surge à frente, largo demais para atravessar.", "A margem da água impede a passagem por aqui."],
+  topo: ["Do alto, você enxerga apenas mais floresta, em todas as direções.", "Lá de cima, as copas se estendem sem fim visível."],
+  exploreClareira: ["Nada além de grama pisada e silêncio.", "O vento cruza a clareira sem obstáculos.", "Você não encontra nada de útil aqui."]
+};
+
+const DEATH_TEXTS = [
+  "Você ouve um som atrás de si — leve, rápido demais para ser seu. Não há tempo para reagir.\n\nFIM.",
+  "Algo se move entre os troncos, rápido demais para ver. A última coisa que você sente é o frio.\n\nFIM.",
+  "Uma sombra cruza na sua frente antes que você possa reagir.\n\nFIM.",
+  "Você sente um puxão frio no ombro. Depois, nada mais.\n\nFIM.",
+  "Um vulto alto demais para ser humano surge entre as árvores — direto na sua direção.\n\nFIM.",
+  "A última coisa que você vê é um brilho pálido, afiado demais para ser um sorriso.\n\nFIM."
+];
+
+// ================== ESTADO DO JOGO ==================
+let state = null;
+
+function choice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function randInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function manhattan(x1,y1,x2,y2){ return Math.abs(x1-x2)+Math.abs(y1-y2); }
+function cellKey(x,y){ return x+","+y; }
+
+function generateWater(start, exit){
+  const blocked = new Set();
+
+  let placedLakes = 0, attempts = 0;
+  while(placedLakes < LAKE_COUNT && attempts < 150){
+    attempts++;
+    const x = randInt(0, GRID_SIZE-1), y = randInt(0, GRID_SIZE-1);
+    const k = cellKey(x,y);
+    if((x===start.x && y===start.y) || (x===exit.x && y===exit.y) || blocked.has(k)) continue;
+    blocked.add(k);
+    placedLakes++;
+  }
+
+  let placedRivers = 0;
+  attempts = 0;
+  while(placedRivers < RIVER_COUNT && attempts < 200){
+    attempts++;
+    const vertical = Math.random() < 0.5;
+    const length = randInt(3,5);
+    const cells = [];
+    let overlapsKey = false;
+    if(vertical){
+      const col = randInt(0, GRID_SIZE-1);
+      const startRow = randInt(0, GRID_SIZE-length);
+      for(let r=0;r<length;r++){
+        const yy = startRow+r;
+        if((col===start.x && yy===start.y) || (col===exit.x && yy===exit.y)){ overlapsKey = true; break; }
+        cells.push(cellKey(col,yy));
+      }
+    } else {
+      const row = randInt(0, GRID_SIZE-1);
+      const startCol = randInt(0, GRID_SIZE-length);
+      for(let c=0;c<length;c++){
+        const xx = startCol+c;
+        if((xx===start.x && row===start.y) || (xx===exit.x && row===exit.y)){ overlapsKey = true; break; }
+        cells.push(cellKey(xx,row));
+      }
+    }
+    if(!overlapsKey){
+      cells.forEach(c => blocked.add(c));
+      placedRivers++;
+    }
+  }
+
+  return blocked;
+}
+
+function isReachable(start, exit, blocked){
+  const visited = new Set([cellKey(start.x,start.y)]);
+  const queue = [start];
+  while(queue.length){
+    const cur = queue.shift();
+    if(cur.x === exit.x && cur.y === exit.y) return true;
+    [[0,-1],[0,1],[1,0],[-1,0]].forEach(([dx,dy]) => {
+      const nx = cur.x+dx, ny = cur.y+dy;
+      if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE) return;
+      const k = cellKey(nx,ny);
+      if(blocked.has(k) || visited.has(k)) return;
+      visited.add(k);
+      queue.push({x:nx, y:ny});
+    });
+  }
+  return false;
+}
+
+function initGame(){
+  const start = { x: 3, y: 3 };
+  let exit;
+  do {
+    exit = { x: randInt(0, GRID_SIZE-1), y: randInt(0, GRID_SIZE-1) };
+  } while(
+    (exit.x === start.x && exit.y === start.y) ||
+    manhattan(exit.x, exit.y, start.x, start.y) < 4 ||
+    manhattan(exit.x, exit.y, start.x, start.y) > 8
+  );
+
+  let blocked = new Set();
+  let tries = 0;
+  do {
+    blocked = generateWater(start, exit);
+    tries++;
+  } while(!isReachable(start, exit, blocked) && tries < 60);
+  if(!isReachable(start, exit, blocked)) blocked = new Set();
+
+  const cellTypes = {};
+  for(let x=0;x<GRID_SIZE;x++){
+    for(let y=0;y<GRID_SIZE;y++){
+      const k = cellKey(x,y);
+      if(blocked.has(k)){ cellTypes[k] = "agua"; continue; }
+      if(x === start.x && y === start.y){ cellTypes[k] = "floresta"; continue; }
+      if(x === exit.x && y === exit.y){ cellTypes[k] = "caminho"; continue; }
+      const r = Math.random();
+      cellTypes[k] = r < 0.15 ? "clareira" : (r < 0.35 ? "caminho" : "floresta");
+    }
+  }
+
+  state = {
+    x: start.x, y: start.y,
+    exit,
+    cellTypes,
+    hourIndex: 0,
+    actionCount: 0,
+    actionsSinceStage: 0,
+    stageThreshold: randInt(4,6),
+    climbed: false,
+    firstActionTaken: false,
+    event: choice(EVENTS),
+    eventTimeIndex: 0,
+    lastDir: null,
+    blockedDirs: new Set(),
+    knownPOIDirs: new Set(),
+    groundLookUsed: false,
+    climbLookUsed: false
+  };
+}
+
+function getCellType(x,y){ return state.cellTypes[cellKey(x,y)] || "floresta"; }
+function currentType(){ return state.climbed ? "topo" : getCellType(state.x, state.y); }
+
+function bestDirection(){
+  const dx = state.exit.x - state.x;
+  const dy = state.exit.y - state.y;
+  const options = [];
+  if(dx > 0) options.push("leste");
+  if(dx < 0) options.push("oeste");
+  if(dy > 0) options.push("sul");
+  if(dy < 0) options.push("norte");
+  if(options.length === 0) return choice(["norte","sul","leste","oeste"]);
+  return choice(options);
+}
+
+function getPOICandidates(excludeDirs){
+  const candidates = [];
+  ["norte","sul","leste","oeste"].forEach(dir => {
+    if(excludeDirs && excludeDirs.has(dir)) return;
+    const d = DIRS[dir];
+    const nx = state.x + d.dx, ny = state.y + d.dy;
+    if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE) return;
+    const t = getCellType(nx, ny);
+    if(t === "agua") return;
+    const isExit = (nx === state.exit.x && ny === state.exit.y);
+    if(isExit || t === "clareira"){
+      candidates.push({ dir, kind: "opening" });
+    } else if(t === "caminho"){
+      candidates.push({ dir, kind: "path" });
+    }
+  });
+  return candidates;
+}
+
+function poiMessage(kind, dir){
+  const pool = kind === "opening" ? OPENING_MSGS[dir] : PATH_MSGS[dir];
+  return choice(pool);
+}
+
+function getWaterNeighbors(){
+  const dirs = [];
+  ["norte","sul","leste","oeste"].forEach(dir => {
+    const d = DIRS[dir];
+    const nx = state.x + d.dx, ny = state.y + d.dy;
+    if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE) return;
+    if(getCellType(nx,ny) === "agua") dirs.push(dir);
+  });
+  return dirs;
+}
+
+function availableActions(){
+  const actions = [];
+  if(!state.climbed){
+    ["norte","sul","leste","oeste"].forEach(dir => {
+      const label = (state.lastDir === dir)
+        ? ("Continuar seguindo para o " + DIR_WORDS[dir])
+        : ("Seguir para o " + DIR_WORDS[dir]);
+      actions.push({ label, type: "move", dir, disabled: state.blockedDirs.has(dir) });
+    });
+    const type = getCellType(state.x, state.y);
+    if(type !== "clareira"){
+      actions.push({ label: "Olhar ao redor", type: "look", disabled: state.groundLookUsed });
+      actions.push({ label: "Subir em uma árvore", type: "climb" });
+    } else {
+      actions.push({ label: "Explorar a clareira", type: "explore", disabled: state.groundLookUsed });
+    }
+    if(state.x === state.exit.x && state.y === state.exit.y){
+      actions.push({ label: "Sair da floresta", type: "exit" });
+    }
+  } else {
+    actions.push({ label: "Olhar ao redor (do alto)", type: "look", disabled: state.climbLookUsed });
+    actions.push({ label: "Descer da árvore", type: "descend" });
+  }
+  return actions;
+}
+
+function processAction(action){
+  if(action.type === "exit"){
+    finishGame();
+    return;
+  }
+
+  const wasOnPath = (!state.climbed && getCellType(state.x, state.y) === "caminho");
+  let lines = [];
+
+  if(action.type === "move"){
+    const d = DIRS[action.dir];
+    const nx = state.x + d.dx, ny = state.y + d.dy;
+    const outOfBounds = nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE;
+    const isWater = !outOfBounds && getCellType(nx,ny) === "agua";
+    if(outOfBounds || isWater){
+      lines.push(isWater ? choice(FLAVOR.water) : choice(FLAVOR.bump));
+      state.blockedDirs.add(action.dir);
+    } else {
+      state.x = nx; state.y = ny;
+      state.blockedDirs = new Set();
+      state.lastDir = action.dir;
+      state.knownPOIDirs = new Set();
+      state.groundLookUsed = false;
+      lines.push(choice(FLAVOR[getCellType(nx, ny)]));
+      const cameFrom = OPPOSITE_DIR[action.dir];
+      const candidates = getPOICandidates(new Set([cameFrom]));
+      if(candidates.length > 0){
+        const pick = choice(candidates);
+        state.knownPOIDirs.add(pick.dir);
+        lines.push(poiMessage(pick.kind, pick.dir));
+      }
+    }
+  } else if(action.type === "look"){
+    const cameFrom = state.lastDir ? OPPOSITE_DIR[state.lastDir] : null;
+    const excludeBase = cameFrom ? new Set([cameFrom]) : new Set();
+    const exclude = new Set(state.knownPOIDirs);
+    if(cameFrom) exclude.add(cameFrom);
+    const newOnes = getPOICandidates(exclude);
+    newOnes.forEach(c => {
+      state.knownPOIDirs.add(c.dir);
+      lines.push(poiMessage(c.kind, c.dir));
+    });
+
+    const anyPOINearby = getPOICandidates(excludeBase).length > 0;
+
+    const clueChance = state.climbed ? CLIMB_CLUE_CHANCE : LOOK_CLUE_CHANCE;
+    let clueFound = false;
+    if(Math.random() < clueChance){
+      const dir = bestDirection();
+      const pool = state.climbed ? TREETOP_CLUES[state.hourIndex][dir] : GROUND_CLUES[state.hourIndex][dir];
+      lines.push(choice(pool));
+      clueFound = true;
+    }
+
+    if(!clueFound && !anyPOINearby){
+      lines.push(state.climbed ? choice(FLAVOR.topo) : choice(FLAVOR[getCellType(state.x, state.y)]));
+    }
+    if(lines.length === 0){
+      lines.push("Nada muda por enquanto.");
+    }
+
+    if(state.climbed){ state.climbLookUsed = true; } else { state.groundLookUsed = true; }
+  } else if(action.type === "climb"){
+    state.climbed = true;
+    state.climbLookUsed = false;
+    lines.push("Você sobe em uma árvore alta.");
+    if(Math.random() < CLIMB_INSTANT_CLUE_CHANCE){
+      const dir = bestDirection();
+      lines.push(choice(TREETOP_CLUES[state.hourIndex][dir]));
+    } else {
+      lines.push(choice(FLAVOR.topo));
+    }
+    getWaterNeighbors().forEach(dir => {
+      lines.push(choice(WATER_WARNING_MSGS[dir]));
+    });
+  } else if(action.type === "descend"){
+    state.climbed = false;
+    lines.push("Você desce da árvore.");
+  } else if(action.type === "explore"){
+    if(Math.random() < EXPLORE_CLUE_CHANCE){
+      const dir = bestDirection();
+      lines.push(choice(GROUND_CLUES[state.hourIndex][dir]));
+    } else {
+      lines.push(choice(FLAVOR.exploreClareira));
+    }
+    state.groundLookUsed = true;
+  }
+
+  const freeAction = wasOnPath;
+  if(!freeAction){
+    state.actionCount++;
+    state.actionsSinceStage++;
+  }
+
+  if(!state.firstActionTaken){
+    state.firstActionTaken = true;
+    lines.push(state.event.initial);
+  }
+
+  if(!freeAction && state.actionsSinceStage >= state.stageThreshold && state.hourIndex < 3){
+    state.hourIndex++;
+    state.actionsSinceStage = 0;
+    state.stageThreshold = randInt(4,6);
+    lines.push(HOUR_TRANSITION_MSG[state.hourIndex]);
+    if(state.eventTimeIndex < state.event.timeMessages.length){
+      lines.push(state.event.timeMessages[state.eventTimeIndex]);
+      state.eventTimeIndex++;
+    }
+  }
+
+  const type = currentType();
+  const prob = RISK_TABLE[type][state.hourIndex];
+  if(prob > 0 && Math.random() < prob){
+    renderEnding(lines.concat([choice(DEATH_TEXTS)]), true);
+    return;
+  }
+
+  renderScene(lines, prob > 0);
+}
+
+function finishGame(){
+  let wrap, eventMsg;
+  if(state.actionCount <= 6){
+    wrap = "Você sai da floresta antes que a escuridão tome conta de tudo. Atrás de você, os troncos voltam a ficar imóveis, como se nada tivesse acontecido.";
+    eventMsg = state.event.early;
+  } else if(state.actionCount <= 12){
+    wrap = "Você sai da floresta, mas o dia já foi longe demais. Atrás de você, a floresta permanece em silêncio — um silêncio que parece satisfeito.";
+    eventMsg = state.event.moderate;
+  } else {
+    wrap = "Você finalmente sai da floresta. Está vivo — isso é mais do que muitos podem dizer. Mas o mundo lá fora seguiu sem esperar por você.";
+    eventMsg = choice(state.event.late);
+  }
+  renderEnding([wrap, eventMsg], false);
+}
+
+// ================== ÁUDIO ==================
 let audioCtx = null;
 function initAudio(){
   if(!audioCtx){
@@ -284,38 +698,12 @@ function typeBeep(danger){
   osc.stop(audioCtx.currentTime + 0.05);
 }
 
-// ---------- motor do jogo ----------
+// ================== RENDERIZAÇÃO ==================
 const storyEl = document.getElementById("story");
 const choicesEl = document.getElementById("choices");
 const eyebrowEl = document.getElementById("eyebrow");
 const restartBtn = document.getElementById("restart");
-const vignette = document.getElementById("vignette");
 let typing = false;
-let stepCount = 0;
-
-function renderNode(id){
-  const node = story[id];
-  choicesEl.classList.remove("show");
-  choicesEl.innerHTML = "";
-  restartBtn.classList.remove("show");
-  vignette.classList.toggle("danger", !!node.danger);
-  stepCount++;
-  eyebrowEl.textContent = node.ending ? "" : ("· " + String(stepCount).padStart(2,"0"));
-  typeText(node.text, !!node.danger, () => {
-    if(node.ending){
-      restartBtn.classList.add("show");
-      return;
-    }
-    node.choices.forEach(choice => {
-      const btn = document.createElement("button");
-      btn.className = "choice";
-      btn.textContent = choice.label;
-      btn.onclick = () => renderNode(choice.next);
-      choicesEl.appendChild(btn);
-    });
-    choicesEl.classList.add("show");
-  });
-}
 
 function typeText(text, danger, onDone){
   typing = true;
@@ -341,21 +729,59 @@ function typeText(text, danger, onDone){
   step();
 }
 
+function renderChoiceButtons(){
+  choicesEl.innerHTML = "";
+  availableActions().forEach(a => {
+    const btn = document.createElement("button");
+    btn.className = "choice" + (a.disabled ? " disabled" : "");
+    btn.textContent = a.label;
+    if(a.disabled){
+      btn.disabled = true;
+    } else {
+      btn.onclick = () => processAction(a);
+    }
+    choicesEl.appendChild(btn);
+  });
+  choicesEl.classList.add("show");
+}
+
+function renderScene(lines, dangerAudio){
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  restartBtn.classList.remove("show");
+  eyebrowEl.textContent = "· " + String(state.actionCount).padStart(2,"0");
+  const text = lines.filter(Boolean).join("\n\n");
+  typeText(text, !!dangerAudio, renderChoiceButtons);
+}
+
+function renderEnding(lines, dangerAudio){
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  eyebrowEl.textContent = "";
+  const text = lines.filter(Boolean).join("\n\n");
+  typeText(text, !!dangerAudio, () => {
+    restartBtn.classList.add("show");
+  });
+}
+
+function startGame(){
+  initGame();
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  restartBtn.classList.remove("show");
+  eyebrowEl.textContent = "";
+  typeText("Você acorda em uma floresta.", false, renderChoiceButtons);
+}
+
 document.getElementById("start-btn").addEventListener("click", () => {
   initAudio();
   document.getElementById("title-screen").style.opacity = "0";
   setTimeout(() => document.getElementById("title-screen").classList.add("hidden"), 900);
-  renderNode("start");
+  startGame();
 });
 
 restartBtn.addEventListener("click", () => {
-  stepCount = 0;
-  renderNode("start");
-});
-
-// pular digitação com clique na tela
-document.addEventListener("click", (e) => {
-  if(e.target.id === "start-btn" || e.target.classList.contains("choice") || e.target.id === "restart") return;
+  startGame();
 });
 </script>
 </body>
