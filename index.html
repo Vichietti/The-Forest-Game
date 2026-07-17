@@ -105,9 +105,13 @@
     cursor: not-allowed;
     pointer-events: none;
   }
-  #restart{
+  #end-actions{
     display:none;
     margin-top: 44px;
+    gap: 14px;
+  }
+  #end-actions.show{ display:flex; }
+  #restart, #menu-btn{
     background:none;
     border: 1px solid var(--line);
     color: var(--ink-dim);
@@ -117,11 +121,9 @@
     text-transform: uppercase;
     padding: 10px 18px;
     cursor: pointer;
-    align-self:flex-start;
     transition: all 0.25s ease;
   }
-  #restart:hover{ color: var(--ink); border-color: var(--ink-dim); }
-  #restart.show{ display:inline-block; }
+  #restart:hover, #menu-btn:hover{ color: var(--ink); border-color: var(--ink-dim); }
   #title-screen{
     position:fixed; inset:0; z-index: 10;
     background: var(--bg);
@@ -157,6 +159,14 @@
     transition: all 0.3s ease;
   }
   #start-btn:hover{ border-color: var(--danger); background: var(--danger-glow); }
+  #credits{
+    color: var(--ink-dim);
+    font-size: 11px;
+    line-height: 1.9;
+    letter-spacing: 0.04em;
+    text-align: center;
+    opacity: 0.7;
+  }
   .hidden{ display:none !important; }
 </style>
 </head>
@@ -166,6 +176,11 @@
   <div class="sub">um jogo de escolhas</div>
   <h1>você acorda<br>em uma floresta.</h1>
   <button id="start-btn">começar</button>
+  <div id="credits">
+    Ítalo Patrício Vichietti — Nº USP 7010884<br>
+    CTR0810 4 - Produção de Games — Prof. Dr. Gilson Schwartz<br>
+    Versão 1.8 — última atualização em 17 de julho de 2026
+  </div>
 </div>
 
 <div id="vignette"></div>
@@ -174,7 +189,10 @@
   <div class="eyebrow" id="eyebrow"></div>
   <div id="story"></div>
   <div id="choices"></div>
-  <button id="restart">recomeçar</button>
+  <div id="end-actions">
+    <button id="restart">recomeçar</button>
+    <button id="menu-btn">voltar ao menu</button>
+  </div>
 </div>
 
 <script>
@@ -193,6 +211,7 @@ const LOOK_CLUE_CHANCE = 0.35;
 const CLIMB_CLUE_CHANCE = 0.70;
 const EXPLORE_CLUE_CHANCE = 0.85;
 const CLIMB_INSTANT_CLUE_CHANCE = 1/3;
+const CLIMB_INSTANT_CLUE_CHANCE_NIGHT = 1;
 
 const LAKE_COUNT = 2;
 const RIVER_COUNT = 2;
@@ -200,10 +219,10 @@ const RIVER_COUNT = 2;
 // probabilidade de "game over" por [tipo de local][hora do dia]
 // hora: 0 Ensolarado, 1 Crepúsculo, 2 Nas Sombras, 3 Noite
 const RISK_TABLE = {
-  floresta: [0,    0,    0.15, 0.40],
-  clareira: [0,    0.35, 0.65, 1.00],
-  caminho:  [0,    0.15, 0.40, 0.70],
-  topo:     [0,    0,    0.60, 0.85]
+  floresta: [0,    0,    0.08, 0.20],
+  clareira: [0,    0.18, 0.33, 0.50],
+  caminho:  [0,    0.08, 0.20, 0.35],
+  topo:     [0,    0,    0.30, 0.38]
 };
 
 const HOUR_TRANSITION_MSG = [
@@ -251,56 +270,56 @@ const EVENTS = [
 // pistas de chão — próximas, sensoriais, táteis
 const GROUND_CLUES = {
   0: {
-    norte: ["O musgo cresce mais grosso no lado norte dos troncos ao seu redor.", "As raízes parecem mais grossas do lado norte de cada árvore."],
-    sul:   ["Os troncos parecem mais secos e claros, voltados para o sul, onde bate mais sol.", "A vegetação rasteira está mais amarelada de um lado — ao sul."],
-    leste: ["Do lado leste dos troncos, a casca parece mais clara e seca.", "Pequenas rachaduras na casca aparecem mais no lado leste dos troncos."],
-    oeste: ["No lado oeste dos troncos, a casca é mais escura e úmida.", "A terra ao pé das árvores está mais escura de um lado — voltado a oeste."]
+    norte: ["Ao norte, uma lata enferrujada meio enterrada aparece entre as raízes.", "Um corte reto na casca de uma árvore ao norte parece feito por uma ferramenta, não por acidente."],
+    sul:   ["Ao sul, um pedaço de tecido preso num galho baixo balança com o vento.", "Ao sul, uma tampa de garrafa enferrujada brilha fraca entre as folhas."],
+    leste: ["A leste, garrafas plásticas amassadas aparecem presas entre raízes.", "A leste, pedaços de vidro quebrado brilham entre as pedras."],
+    oeste: ["A oeste, uma marca de pneu se vê na lama.", "Pedras a oeste parecem empilhadas de propósito, uma sobre a outra."]
   },
   1: {
-    norte: ["Uma trilha de folhas amassadas segue para o norte, cortando a luz baixa.", "Um galho quebrado aponta para o norte, ainda com a seiva fresca."],
-    sul:   ["Marcas recentes na terra vão para o sul, contra o brilho do poente.", "Pegadas rasas na terra ainda úmida seguem para o sul."],
-    leste: ["No chão, os rastros seguem para o lado oposto ao sol poente.", "A claridade que resta no céu vem só de um lado — o oposto ao poente."],
-    oeste: ["No chão se vê rastros indo na direção do sol.", "Uma trilha de folhas reviradas segue na direção do sol poente."]
+    norte: ["Ao norte, um som abafado de motor distante some e volta.", "Um cheiro fraco de fumaça vem do norte, misturado ao cheiro de terra."],
+    sul:   ["Ao sul, algo late ao longe — um cachorro, talvez.", "Um sino distante soa uma vez, vindo do sul."],
+    leste: ["A leste, um motor passa ao longe e some tão rápido quanto veio.", "Um zumbido constante, como fiação elétrica, vem de leste."],
+    oeste: ["A oeste, um cheiro de fumaça de lenha fica mais forte por um instante.", "Um som de metal batendo em metal ecoa fraco, vindo de oeste."]
   },
   2: {
-    norte: ["Um vento frio sopra, vindo do norte.", "Um cheiro de terra fresca vem forte de um lado — do norte."],
-    sul:   ["Um vento frio sopra, vindo do sul.", "Os galhos baixos balançam mais de um lado só — vindo do sul."],
-    leste: ["Um vento frio sopra, vindo do leste.", "Um som abafado, como água corrente, vem do leste."],
-    oeste: ["Um vento frio sopra, vindo do oeste.", "As folhas secas se movem sozinhas — empurradas de oeste."]
+    norte: ["Ao norte, uma luz amarelada pisca entre os troncos, longe demais para ser natural.", "Um cheiro de fumaça de lenha é mais forte vindo do norte."],
+    sul:   ["Ao sul, um zumbido baixo e constante corta o silêncio — parece motor.", "Um latido distante ecoa vindo do sul."],
+    leste: ["A leste, uma luz fraca e amarelada aparece por um segundo entre as árvores.", "A leste, um estalo metálico ecoa uma vez, longe entre as árvores."],
+    oeste: ["A oeste, uma claridade artificial ilumina fraco o topo das árvores.", "Um cheiro de gasolina queimada vem fraco de oeste."]
   },
   3: {
-    norte: ["Entre as copas, um clarão pálido marca o norte do céu.", "Ao longe, ao norte, algo reflete uma luz fraca entre os troncos."],
-    sul:   ["Entre as copas, um clarão pálido marca o sul do céu.", "Um silêncio mais pesado vem do sul, como se a mata se abrisse ali."],
-    leste: ["Entre as copas, um clarão pálido marca o leste do céu.", "Sons de grilos somem de repente a leste — como se o chão mudasse ali."],
-    oeste: ["Entre as copas, um clarão pálido marca o oeste do céu.", "Uma trilha de neblina rasteira segue para oeste."]
+    norte: ["No horizonte norte, um brilho alaranjado ilumina o céu por baixo das nuvens — luz de cidade.", "Ao norte, faróis distantes cortam a escuridão por um instante, depois somem."],
+    sul:   ["Ao sul, o céu tem um tom levemente alaranjado, diferente do resto — sinal de luz artificial refletida.", "Um som constante e mecânico, como tráfego distante, vem do sul."],
+    leste: ["A leste, luzes pequenas piscam fixas no horizonte — janelas iluminadas, talvez.", "Ao leste, o silêncio da mata dá lugar a um zumbido elétrico fraco."],
+    oeste: ["A oeste, uma coluna fina de fumaça sobe, recortada contra a lua.", "O céu a oeste tem um brilho difuso — luz artificial refletida nas nuvens baixas."]
   }
 };
 
-// pistas do topo da árvore — mais amplas, panorâmicas
+// pistas do topo da árvore — mais amplas, panorâmicas. À noite, todas envolvem luzes à distância.
 const TREETOP_CLUES = {
   0: {
-    norte: ["Da copa, você nota que as árvores ficam mais baixas para o norte — sinal de terreno mais aberto.", "Ao norte, o topo da mata parece menos denso, como se clareasse mais adiante."],
-    sul:   ["Para o sul, um brilho mais forte no chão sugere menos copa cobrindo o caminho.", "As copas ao sul parecem mais espaçadas, deixando passar mais luz."],
-    leste: ["A leste, uma leve neblina baixa marca uma faixa mais aberta entre as árvores.", "Do alto, ao leste, o topo das árvores forma um vão maior que o resto."],
-    oeste: ["A oeste, o topo da mata ganha um tom mais claro, quase dourado.", "Ao oeste, as copas se abrem num pequeno vão visível daqui de cima."]
+    norte: ["Do alto, ao norte, um telhado metálico reflete o sol por um instante, longe entre as árvores.", "Ao norte, uma faixa reta demais para ser natural corta a copa da floresta — talvez uma estrada."],
+    sul:   ["Ao sul, uma coluna fina de fumaça sobe entre as copas, bem ao longe.", "Da copa, ao sul, os postes de uma cerca aparecem entre as árvores mais baixas."],
+    leste: ["A leste, um brilho metálico aparece e some entre a folhagem — um carro, talvez.", "Do alto, a leste, uma linha reta de fios corta o topo da mata."],
+    oeste: ["A oeste, uma clareira grande demais para ser natural se abre no meio da mata — parece cultivada.", "Da copa, ao oeste, um telhado baixo aparece por um instante entre os galhos."]
   },
   1: {
-    norte: ["Daqui de cima, a última luz do dia ainda ilumina uma faixa ao norte.", "Ao norte, uma linha mais clara corta o topo das árvores."],
-    sul:   ["Ao sul, uma faixa de copas mais baixas corta a floresta em linha reta.", "Da altura, o sul parece ter menos árvores do que o resto."],
-    leste: ["A leste, o céu já escurece mais rápido — sinal de nuvens baixas ou clareira.", "Do alto, a leste, as copas se abrem num vão irregular."],
-    oeste: ["A oeste, o sol ainda bate cheio sobre uma faixa aberta entre as árvores.", "Da copa, o oeste ainda guarda um brilho quente entre os galhos."]
+    norte: ["Ao norte, luzes começam a se acender ao longe, pequenas entre as árvores.", "Da altura, ao norte, uma linha de postes de luz aparece contra o céu."],
+    sul:   ["Ao sul, o brilho do poente reflete em algo metálico e fixo — um telhado, talvez.", "Da copa, ao sul, uma nuvem de poeira sobe ao longe, como de um carro passando."],
+    leste: ["A leste, uma luz artificial já pisca fraca contra o céu escurecendo.", "Do alto, a leste, uma trilha reta corta a mata — longa demais para ser feita por animais."],
+    oeste: ["A oeste, o horizonte tem um brilho alaranjado diferente do sol se pondo — luzes de algum lugar.", "Da copa, ao oeste, uma fileira de árvores cortadas em linha reta sugere uma estrada."]
   },
   2: {
-    norte: ["Lá do alto, um som distante de água ou vento parece vir do norte.", "Ao norte, o vento bate diferente — mais livre, como se passasse por um vão."],
-    sul:   ["Ao sul, as copas se mexem de forma diferente — como se o vento passasse por um vão.", "Da altura, um cheiro de terra molhada sobe vindo do sul."],
-    leste: ["A leste, um cheiro de terra molhada sobe entre as árvores.", "Do alto, a leste, um silêncio maior sugere um espaço aberto."],
-    oeste: ["A oeste, o silêncio parece mais denso — típico de um caminho mais aberto.", "Daqui de cima, o oeste está estranhamente quieto."]
+    norte: ["Ao norte, pontos de luz já piscam fixos entre as árvores mais distantes.", "Da altura, um zumbido baixo de motor vem do norte, mais forte do que no chão."],
+    sul:   ["Ao sul, uma claridade amarelada ilumina o topo das árvores mais distantes.", "Da copa, ao sul, um cheiro de fumaça é bem mais forte do que embaixo."],
+    leste: ["A leste, uma luz artificial pisca de forma constante — longe, mas visível.", "Do alto, a leste, um som mecânico e repetitivo ecoa mais claro."],
+    oeste: ["A oeste, uma faixa de luz alaranjada ilumina o horizonte por baixo das copas.", "Da copa, ao oeste, sombras de estruturas altas se recortam contra o céu."]
   },
   3: {
-    norte: ["Do alto, um clarão pálido no horizonte norte corta a escuridão das copas.", "Ao norte, as estrelas parecem mais próximas do chão — sinal de clareira."],
-    sul:   ["Ao sul, um ponto de luz fraco pisca entre as árvores — talvez um caminho aberto.", "Da altura, ao sul, a copa parece se abrir num vão escuro."],
-    leste: ["A leste, as estrelas parecem mais baixas, como se a copa se abrisse ali.", "Do alto, a leste, um vento frio sobe de um vão entre as árvores."],
-    oeste: ["A oeste, um brilho difuso sugere um vão maior entre as árvores.", "Da copa, o oeste parece mais escuro que o resto — talvez mais denso."]
+    norte: ["Do alto, ao norte, o céu tem um brilho alaranjado nítido — sem dúvida, luzes de algum lugar habitado.", "Ao norte, um aglomerado de luzes pequenas pisca fixo no horizonte."],
+    sul:   ["Ao sul, faróis de veículos cortam a escuridão em linha reta, ao longe.", "Da copa, ao sul, um brilho constante ilumina as nuvens baixas."],
+    leste: ["A leste, luzes de janelas piscam entre as árvores mais distantes.", "Do alto, a leste, um clarão fraco pulsa entre as copas, como uma luz distante."],
+    oeste: ["A oeste, uma torre com luz vermelha pisca no topo, bem ao longe.", "Da copa, ao oeste, o brilho de postes de rua ilumina fraco o horizonte."]
   }
 };
 
@@ -460,7 +479,7 @@ function initGame(){
     event: choice(EVENTS),
     eventTimeIndex: 0,
     lastDir: null,
-    blockedDirs: new Set(),
+    cellBlockedDirs: {},
     knownPOIDirs: new Set(),
     groundLookUsed: false,
     climbLookUsed: false
@@ -469,6 +488,17 @@ function initGame(){
 
 function getCellType(x,y){ return state.cellTypes[cellKey(x,y)] || "floresta"; }
 function currentType(){ return state.climbed ? "topo" : getCellType(state.x, state.y); }
+
+function isDirBlocked(dir){
+  const k = cellKey(state.x, state.y);
+  const set = state.cellBlockedDirs[k];
+  return !!(set && set.has(dir));
+}
+function markDirBlocked(dir){
+  const k = cellKey(state.x, state.y);
+  if(!state.cellBlockedDirs[k]) state.cellBlockedDirs[k] = new Set();
+  state.cellBlockedDirs[k].add(dir);
+}
 
 function bestDirection(){
   const dx = state.exit.x - state.x;
@@ -524,7 +554,7 @@ function availableActions(){
       const label = (state.lastDir === dir)
         ? ("Continuar seguindo para o " + DIR_WORDS[dir])
         : ("Seguir para o " + DIR_WORDS[dir]);
-      actions.push({ label, type: "move", dir, disabled: state.blockedDirs.has(dir) });
+      actions.push({ label, type: "move", dir, disabled: isDirBlocked(dir) });
     });
     const type = getCellType(state.x, state.y);
     if(type !== "clareira"){
@@ -559,10 +589,9 @@ function processAction(action){
     const isWater = !outOfBounds && getCellType(nx,ny) === "agua";
     if(outOfBounds || isWater){
       lines.push(isWater ? choice(FLAVOR.water) : choice(FLAVOR.bump));
-      state.blockedDirs.add(action.dir);
+      markDirBlocked(action.dir);
     } else {
       state.x = nx; state.y = ny;
-      state.blockedDirs = new Set();
       state.lastDir = action.dir;
       state.knownPOIDirs = new Set();
       state.groundLookUsed = false;
@@ -586,18 +615,21 @@ function processAction(action){
       lines.push(poiMessage(c.kind, c.dir));
     });
 
+    const revealedNewPOI = newOnes.length > 0;
     const anyPOINearby = getPOICandidates(excludeBase).length > 0;
 
-    const clueChance = state.climbed ? CLIMB_CLUE_CHANCE : LOOK_CLUE_CHANCE;
     let clueFound = false;
-    if(Math.random() < clueChance){
-      const dir = bestDirection();
-      const pool = state.climbed ? TREETOP_CLUES[state.hourIndex][dir] : GROUND_CLUES[state.hourIndex][dir];
-      lines.push(choice(pool));
-      clueFound = true;
+    if(!revealedNewPOI){
+      const clueChance = state.climbed ? CLIMB_CLUE_CHANCE : LOOK_CLUE_CHANCE;
+      if(Math.random() < clueChance){
+        const dir = bestDirection();
+        const pool = state.climbed ? TREETOP_CLUES[state.hourIndex][dir] : GROUND_CLUES[state.hourIndex][dir];
+        lines.push(choice(pool));
+        clueFound = true;
+      }
     }
 
-    if(!clueFound && !anyPOINearby){
+    if(!clueFound && !revealedNewPOI && !anyPOINearby){
       lines.push(state.climbed ? choice(FLAVOR.topo) : choice(FLAVOR[getCellType(state.x, state.y)]));
     }
     if(lines.length === 0){
@@ -609,7 +641,8 @@ function processAction(action){
     state.climbed = true;
     state.climbLookUsed = false;
     lines.push("Você sobe em uma árvore alta.");
-    if(Math.random() < CLIMB_INSTANT_CLUE_CHANCE){
+    const climbClueChance = state.hourIndex === 3 ? CLIMB_INSTANT_CLUE_CHANCE_NIGHT : CLIMB_INSTANT_CLUE_CHANCE;
+    if(Math.random() < climbClueChance){
       const dir = bestDirection();
       lines.push(choice(TREETOP_CLUES[state.hourIndex][dir]));
     } else {
@@ -703,6 +736,8 @@ const storyEl = document.getElementById("story");
 const choicesEl = document.getElementById("choices");
 const eyebrowEl = document.getElementById("eyebrow");
 const restartBtn = document.getElementById("restart");
+const menuBtn = document.getElementById("menu-btn");
+const endActions = document.getElementById("end-actions");
 let typing = false;
 
 function typeText(text, danger, onDone){
@@ -748,7 +783,7 @@ function renderChoiceButtons(){
 function renderScene(lines, dangerAudio){
   choicesEl.classList.remove("show");
   choicesEl.innerHTML = "";
-  restartBtn.classList.remove("show");
+  endActions.classList.remove("show");
   eyebrowEl.textContent = "· " + String(state.actionCount).padStart(2,"0");
   const text = lines.filter(Boolean).join("\n\n");
   typeText(text, !!dangerAudio, renderChoiceButtons);
@@ -760,7 +795,7 @@ function renderEnding(lines, dangerAudio){
   eyebrowEl.textContent = "";
   const text = lines.filter(Boolean).join("\n\n");
   typeText(text, !!dangerAudio, () => {
-    restartBtn.classList.add("show");
+    endActions.classList.add("show");
   });
 }
 
@@ -768,9 +803,20 @@ function startGame(){
   initGame();
   choicesEl.classList.remove("show");
   choicesEl.innerHTML = "";
-  restartBtn.classList.remove("show");
+  endActions.classList.remove("show");
   eyebrowEl.textContent = "";
   typeText("Você acorda em uma floresta.", false, renderChoiceButtons);
+}
+
+function showTitleScreen(){
+  const titleScreen = document.getElementById("title-screen");
+  choicesEl.classList.remove("show");
+  choicesEl.innerHTML = "";
+  endActions.classList.remove("show");
+  storyEl.textContent = "";
+  eyebrowEl.textContent = "";
+  titleScreen.classList.remove("hidden");
+  titleScreen.style.opacity = "1";
 }
 
 document.getElementById("start-btn").addEventListener("click", () => {
@@ -782,6 +828,10 @@ document.getElementById("start-btn").addEventListener("click", () => {
 
 restartBtn.addEventListener("click", () => {
   startGame();
+});
+
+menuBtn.addEventListener("click", () => {
+  showTitleScreen();
 });
 </script>
 </body>
